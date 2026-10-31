@@ -200,4 +200,4 @@ This project is implemented as a **multi-file Python project** (the bonus option
 
 ## 👤 Author
 
-**Your Name**
+**Mina Magdy**
