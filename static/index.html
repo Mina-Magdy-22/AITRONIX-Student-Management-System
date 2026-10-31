@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Student Management System</title>
+<style>
+  :root { --bg: #f5f7fb; --card: #fff; --text: #1f2937; --muted: #6b7280; --border: #e5e7eb;
+          --primary: #4361ee; --bad: #dc2626; --good: #16a34a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--primary); color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 20px; }
+  h2 { margin: 0 0 12px; font-size: 17px; }
+  h3 { margin: 18px 0 8px; font-size: 15px; }
+  main { max-width: 1100px; margin: 20px auto; padding: 0 16px 40px; }
+  nav { display: flex; gap: 8px; margin-bottom: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  input, select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font: inherit; background: #fff; color: var(--text); }
+  input.grade { width: 90px; }
+  button { padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text); font: inherit; cursor: pointer; }
+  button:hover { background: #f0f3f9; }
+  button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  button.danger { color: var(--bad); }
+  nav button.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+  header button { background: #fff; color: var(--primary); }
+  .table-wrap { overflow-x: auto; margin-top: 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
+  td:last-child { white-space: nowrap; }
+  th { color: var(--muted); font-size: 13px; }
+  .tab { display: none; }
+  .tab.active { display: block; }
+  .muted { color: var(--muted); }
+  #msg { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; color: #fff; }
+  #msg.ok { background: var(--good); }
+  #msg.error { background: var(--bad); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Student Management System</h1>
+  <button id="demo" data-action="demo" hidden>Load sample data</button>
+</header>
+
+<main>
+  <nav>
+    <button data-tab="students" class="active">Students</button>
+    <button data-tab="teachers">Teachers</button>
+    <button data-tab="courses">Courses</button>
+  </nav>
+  <div id="msg" hidden></div>
+
+  <section id="students" class="tab active">
+    <div class="card">
+      <h2>Add student</h2>
+      <form id="student-form" class="row">
+        <select name="type">
+          <option value="undergraduate">Undergraduate</option>
+          <option value="graduate">Graduate</option>
+        </select>
+        <input name="name" placeholder="Name" required>
+        <input name="age" type="number" placeholder="Age" required>
+        <input name="email" type="email" placeholder="Email" required>
+        <input name="major" placeholder="Major" required>
+        <input name="thesis" placeholder="Thesis topic (optional)" hidden>
+        <button class="primary">Add</button>
+      </form>
+    </div>
+    <div class="card">
+      <input id="search" placeholder="Search by name, major or ID">
+      <div class="table-wrap"><table id="student-table"></table></div>
+    </div>
+    <div id="details"></div>
+  </section>
+
+  <section id="teachers" class="tab">
+    <div class="card">
+      <h2>Add teacher</h2>
+      <form id="teacher-form" class="row">
+        <input name="name" placeholder="Name" required>
+        <input name="age" type="number" placeholder="Age" required>
+        <input name="email" type="email" placeholder="Email" required>
+        <input name="department" placeholder="Department" required>
+        <button class="primary">Add</button>
+      </form>
+    </div>
+    <div class="card"><div class="table-wrap"><table id="teacher-table"></table></div></div>
+  </section>
+
+  <section id="courses" class="tab">
+    <div class="card">
+      <h2>Add course</h2>
+      <form id="course-form" class="row">
+        <input name="code" placeholder="Code (e.g. CS101)" required>
+        <input name="name" placeholder="Course name" required>
+        <input name="capacity" type="number" placeholder="Capacity (default 30)">
+        <button class="primary">Add</button>
+      </form>
+    </div>
+    <div class="card"><div class="table-wrap"><table id="course-table"></table></div></div>
+  </section>
+</main>
+
+<script>
+let state = { students: [], teachers: [], courses: [] };
+let selectedId = null;
+
+const $ = (selector) => document.querySelector(selector);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function show(text, isError) {
+  const box = $("#msg");
+  box.textContent = text;
+  box.className = isError ? "error" : "ok";
+  box.hidden = false;
+  clearTimeout(show.timer);
+  show.timer = setTimeout(() => (box.hidden = true), 4000);
+}
+
+async function load() {
+  try {
+    state = await (await fetch("/api/data")).json();
+    render();
+  } catch (error) {
+    show("Could not reach the server.", true);
+  }
+}
+
+async function send(action, data, successText) {
+  try {
+    const response = await fetch("/api/" + action, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data || {}),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      show(body.error, true);
+      return false;
+    }
+    if (successText) show(successText, false);
+    await load();
+    return true;
+  } catch (error) {
+    show("Could not reach the server.", true);
+    return false;
+  }
+}
+
+function formValues(form) {
+  const values = {};
+  for (const [key, value] of new FormData(form)) {
+    const text = value.trim();
+    if (text === "") values[key] = null;
+    else values[key] = form.elements[key].type === "number" ? Number(text) : text;
+  }
+  return values;
+}
+
+function table(headers, rows, emptyText) {
+  const head = headers.map((h) => `<th>${h}</th>`).join("");
+  const body = rows.join("") || `<tr><td colspan="${headers.length}" class="muted">${emptyText}</td></tr>`;
+  return `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+}
+
+const gpaText = (s) => (s.has_grades ? s.gpa.toFixed(2) : "-");
+
+function render() {
+  renderStudents();
+  renderTeachers();
+  renderCourses();
+  renderDetails();
+  $("#demo").hidden = state.students.length + state.teachers.length + state.courses.length > 0;
+}
+
+function renderStudents() {
+  const query = $("#search").value.trim().toLowerCase();
+  const rows = state.students
+    .filter((s) => !query || [s.name, s.major, s.id].some((v) => v.toLowerCase().includes(query)))
+    .map((s) => `<tr>
+      <td>${esc(s.id)}</td><td>${esc(s.name)}</td><td>${esc(s.role)}</td><td>${esc(s.major)}</td>
+      <td>${s.enrollments.length}/${s.max_courses}</td><td>${gpaText(s)}</td><td>${esc(s.standing)}</td>
+      <td><button data-action="details" data-id="${esc(s.id)}">Details</button>
+          <button class="danger" data-action="delete-student" data-id="${esc(s.id)}">Delete</button></td></tr>`);
+  $("#student-table").innerHTML = table(
+    ["ID", "Name", "Type", "Major", "Courses", "GPA", "Standing", ""], rows, "No students found.");
+}
+
+function renderTeachers() {
+  const rows = state.teachers.map((t) => {
+    const courses = state.courses.filter((c) => c.teacher_id === t.id).map((c) => c.code).join(", ") || "-";
+    return `<tr><td>${esc(t.id)}</td><td>${esc(t.name)}</td><td>${esc(t.department)}</td><td>${esc(t.email)}</td>
+      <td>${esc(courses)}</td>
+      <td><button class="danger" data-action="delete-teacher" data-id="${esc(t.id)}">Delete</button></td></tr>`;
+  });
+  $("#teacher-table").innerHTML = table(
+    ["ID", "Name", "Department", "Email", "Courses", ""], rows, "No teachers yet.");
+}
+
+function renderCourses() {
+  const rows = state.courses.map((c) => {
+    const options = state.teachers
+      .map((t) => `<option value="${esc(t.id)}" ${t.id === c.teacher_id ? "selected" : ""}>${esc(t.name)}</option>`)
+      .join("");
+    const students = c.students.map((s) => esc(s.name)).join(", ") || "-";
+    return `<tr><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${c.students.length}/${c.capacity}</td>
+      <td><select data-action="assign" data-code="${esc(c.code)}"><option value="">Not assigned</option>${options}</select></td>
+      <td>${students}</td>
+      <td><button class="danger" data-action="delete-course" data-code="${esc(c.code)}">Delete</button></td></tr>`;
+  });
+  $("#course-table").innerHTML = table(
+    ["Code", "Name", "Seats", "Teacher", "Students", ""], rows, "No courses yet.");
+}
+
+function renderDetails() {
+  const box = $("#details");
+  const s = state.students.find((student) => student.id === selectedId);
+  if (!s) {
+    box.innerHTML = "";
+    return;
+  }
+  const enrolled = new Set(s.enrollments.map((e) => e.code));
+  const free = state.courses.filter((c) => !enrolled.has(c.code));
+  const rows = s.enrollments.map((e) => `<tr>
+    <td>${esc(e.code)} ${esc(e.name)}</td>
+    <td><input class="grade" type="number" min="0" max="100" step="0.1" id="grade-${esc(e.code)}" value="${e.grade ?? ""}">
+        <button data-action="grade" data-code="${esc(e.code)}">Save</button></td>
+    <td>${esc(e.letter)}</td>
+    <td><button class="danger" data-action="drop" data-code="${esc(e.code)}">Drop</button></td></tr>`);
+  const enrollForm = free.length
+    ? `<select id="enroll-select">${free.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} ${esc(c.name)}</option>`).join("")}</select>
+       <button class="primary" data-action="enroll">Enroll</button>`
+    : `<span class="muted">No other courses available.</span>`;
+
+  box.innerHTML = `<div class="card">
+    <h2>${esc(s.name)} (${esc(s.id)})</h2>
+    <p class="muted">${esc(s.role)} | GPA: ${gpaText(s)} | ${esc(s.standing)}${s.thesis ? " | Thesis: " + esc(s.thesis) : ""}</p>
+    <form id="edit-form" class="row">
+      <input name="name" value="${esc(s.name)}" required>
+      <input name="age" type="number" value="${s.age}" required>
+      <input name="email" type="email" value="${esc(s.email)}" required>
+      <input name="major" value="${esc(s.major)}" required>
+      <button class="primary">Save changes</button>
+    </form>
+    <h3>Courses</h3>
+    <div class="table-wrap"><table>${table(["Course", "Grade (0-100)", "Letter", ""], rows, "Not enrolled in any course.")}</table></div>
+    <div class="row" style="margin-top:12px">${enrollForm}</div>
+    <div style="margin-top:12px"><button data-action="close">Close</button></div>
+  </div>`;
+}
+
+function toggleThesis() {
+  const form = $("#student-form");
+  form.elements.thesis.hidden = form.elements.type.value !== "graduate";
+}
+
+document.addEventListener("click", async (event) => {
+  const tab = event.target.closest("[data-tab]");
+  if (tab) {
+    document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b === tab));
+    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === tab.dataset.tab));
+    return;
+  }
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const { action, id, code } = button.dataset;
+
+  if (action === "details") {
+    selectedId = id;
+    renderDetails();
+    $("#details").scrollIntoView({ behavior: "smooth" });
+  } else if (action === "close") {
+    selectedId = null;
+    renderDetails();
+  } else if (action === "delete-student") {
+    if (confirm("Delete this student?")) await send("delete_student", { id }, "Student deleted.");
+  } else if (action === "delete-teacher") {
+    if (confirm("Delete this teacher?")) await send("delete_teacher", { id }, "Teacher deleted.");
+  } else if (action === "delete-course") {
+    if (confirm("Delete this course?")) await send("delete_course", { code }, "Course deleted.");
+  } else if (action === "enroll") {
+    await send("enroll", { student_id: selectedId, course_code: $("#enroll-select").value }, "Enrolled.");
+  } else if (action === "drop") {
+    if (confirm("Drop this course? Any grade will be lost.")) {
+      await send("drop", { student_id: selectedId, course_code: code }, "Course dropped.");
+    }
+  } else if (action === "grade") {
+    const value = $("#grade-" + code).value.trim();
+    if (value === "") return show("Enter a grade first.", true);
+    await send("grade", { student_id: selectedId, course_code: code, grade: Number(value) }, "Grade saved.");
+  } else if (action === "demo") {
+    await send("demo", {}, "Sample data loaded.");
+  }
+});
+
+document.addEventListener("change", async (event) => {
+  if (event.target.dataset.action === "assign") {
+    await send("assign_teacher", { teacher_id: event.target.value, course_code: event.target.dataset.code }, "Teacher updated.");
+  }
+  if (event.target.name === "type") toggleThesis();
+});
+
+document.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const values = formValues(form);
+  const actions = {
+    "student-form": ["add_student", "Student added."],
+    "teacher-form": ["add_teacher", "Teacher added."],
+    "course-form": ["add_course", "Course added."],
+    "edit-form": ["update_student", "Student updated."],
+  };
+  const [action, text] = actions[form.id];
+  if (form.id === "edit-form") values.id = selectedId;
+  const done = await send(action, values, text);
+  if (done && form.id !== "edit-form") {
+    form.reset();
+    toggleThesis();
+  }
+});
+
+$("#search").addEventListener("input", renderStudents);
+load();
+</script>
+</body>
+</html>
