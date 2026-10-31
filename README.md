@@ -152,8 +152,8 @@ student-management-system/
 
 ### 1. Get the project
 ```bash
-git clone https://github.com/<your-username>/<your-repo>.git
-cd <your-repo>
+git clone https://github.com/<Mina-Magdy-22>/<AITRONIX-Student-Management-System>.git
+cd <AITRONIX-Student-Management-System>
 ```
 
 ### 2. Choose an interface
